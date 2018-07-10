@@ -14,35 +14,35 @@ import (
 type time struct {
 	ID      bson.ObjectId `json:"id" bson:"_id,omitempty"`
 	OwnerID bson.ObjectId `json:"ownerid" bson:"ownerid,omitempty"`
-	Hours   int
-	Minutes int
-	Seconds int
-	Ampm    int
-	Days    []int
+	Hours   int           `json:"hours"`
+	Minutes int           `json:"minutes"`
+	Seconds int           `json:"seconds"`
+	Ampm    int           `json:"ampm"`
+	Days    []int         `json:"days"`
 }
 
 type user struct {
 	ID       bson.ObjectId `json:"id" bson:"_id,omitempty"`
-	Email    string
-	Username string
-	Password string
-	Times    []time
+	Email    string        `json:"email"`
+	Username string        `json:"username"`
+	Password string        `json:"password"`
+	Times    []time        `json:"times"`
 }
 
 type userResponse struct {
-	LoggedIn bool
-	Email    string
-	Username string
-	Times    []time
+	LoggedIn bool   `json:"loggedIn"`
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	Times    []time `json:"times"`
 }
 
 type dummyResponse struct {
-	LoggedIn bool
-	Times    []time
+	LoggedIn bool   `json:"loggedIn"`
+	Times    []time `json:"times"`
 }
 
 type errorResponse struct {
-	Error string
+	Error string `json:"error"`
 }
 
 type handler struct {
@@ -50,13 +50,24 @@ type handler struct {
 	Times *mgo.Collection
 }
 
+func writeHeaders(w http.ResponseWriter) {
+	headers := w.Header()
+	headers.Add("Access-Control-Allow-Origin", "*")
+	headers.Add("Vary", "Origin")
+	headers.Add("Vary", "Access-Control-Request-Method")
+	headers.Add("Vary", "Access-Control-Request-Headers")
+	headers.Add("Access-Control-Allow-Headers", "Content-Type, Origin, Accept, token")
+	headers.Add("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	headers.Set("Content-Type", "application/json")
+}
+
 var store = sessions.NewCookieStore([]byte("poopies"))
 
 func (handler *handler) login(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	session, sessionErr := store.Get(r, "User")
-	if sessionErr != nil {
-		panic(sessionErr)
+	writeHeaders(w)
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
 	}
 	decoder := json.NewDecoder(r.Body)
 	var i user
@@ -76,8 +87,15 @@ func (handler *handler) login(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(errorResponse{"Incorrect password"})
 		panic(hashErr)
 	}
+	session, sessionErr := store.Get(r, "User")
+	if sessionErr != nil {
+		panic(sessionErr)
+	}
 	session.Values["id"] = u.ID.Hex()
-	session.Save(r, w)
+	sessionSaveErr := session.Save(r, w)
+	if sessionSaveErr != nil {
+		panic(sessionSaveErr)
+	}
 	res := userResponse{true, u.Email, u.Username, []time{}}
 	var userTimes []time
 	handler.Times.Find(bson.M{"ownerId": u.ID}).All(&userTimes)
@@ -88,7 +106,11 @@ func (handler *handler) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *handler) logout(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	writeHeaders(w)
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	session, sessionErr := store.Get(r, "User")
 	if sessionErr != nil {
 		panic(sessionErr)
@@ -100,7 +122,7 @@ func (handler *handler) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *handler) loginStatus(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	writeHeaders(w)
 	session, sessionErr := store.Get(r, "User")
 	if sessionErr != nil {
 		panic(sessionErr)
@@ -128,7 +150,11 @@ func (handler *handler) loginStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *handler) newUser(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	writeHeaders(w)
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	decoder := json.NewDecoder(r.Body)
 	var u user
 	err := decoder.Decode(&u)
@@ -153,7 +179,11 @@ func (handler *handler) newUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *handler) deleteUser(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	writeHeaders(w)
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	session, sessionErr := store.Get(r, "User")
 	if sessionErr != nil {
 		panic(sessionErr)
@@ -168,7 +198,11 @@ func (handler *handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *handler) newTime(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	writeHeaders(w)
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	session, sessionErr := store.Get(r, "User")
 	if sessionErr != nil {
 		panic(sessionErr)
@@ -197,7 +231,11 @@ func (handler *handler) newTime(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *handler) editTime(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	writeHeaders(w)
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	session, sessionErr := store.Get(r, "User")
 	if sessionErr != nil {
 		panic(sessionErr)
@@ -230,7 +268,11 @@ func (handler *handler) editTime(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *handler) deleteTime(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	writeHeaders(w)
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	session, sessionErr := store.Get(r, "User")
 	if sessionErr != nil {
 		panic(sessionErr)
@@ -274,13 +316,15 @@ func main() {
 	times := session.DB("clock").C("times")
 	handler := &handler{users, times}
 
-	http.HandleFunc("/login", handler.login)
-	http.HandleFunc("/logout", handler.logout)
-	http.HandleFunc("/loginstatus", handler.loginStatus)
-	http.HandleFunc("/newuser", handler.newUser)
-	http.HandleFunc("/deleteuser", handler.deleteUser)
-	http.HandleFunc("/newtime", handler.newTime)
-	http.HandleFunc("/edittime", handler.editTime)
-	http.HandleFunc("/deletetime", handler.deleteTime)
-	http.ListenAndServe(":8080", nil)
+	http.HandleFunc("/api/login", handler.login)
+	http.HandleFunc("/api/logout", handler.logout)
+	http.HandleFunc("/api/loginstatus", handler.loginStatus)
+	http.HandleFunc("/api/newuser", handler.newUser)
+	http.HandleFunc("/api/deleteuser", handler.deleteUser)
+	http.HandleFunc("/api/newtime", handler.newTime)
+	http.HandleFunc("/api/edittime", handler.editTime)
+	http.HandleFunc("/api/deletetime", handler.deleteTime)
+	http.ListenAndServe(":3000", nil)
 }
+
+// TODO check if email already exists, check if time already exists, add proper statuses to responses
