@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"golang.org/x/crypto/bcrypt"
@@ -22,7 +23,7 @@ type time struct {
 }
 
 type user struct {
-	ID       bson.ObjectId `json:"id" bson:"_id,omitempty"`
+	ID       bson.ObjectId `json:"_id" bson:"_id,omitempty"`
 	Email    string        `json:"email"`
 	Username string        `json:"username"`
 	Password string        `json:"password"`
@@ -286,6 +287,7 @@ func (handler *handler) deleteTime(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	var t time
 	decoder.Decode(&t)
+	fmt.Print("t ", t)
 	var origtime time
 	searchErr := handler.Times.FindId(t.ID).One(&origtime)
 	if searchErr != nil {
@@ -316,6 +318,7 @@ func main() {
 	times := session.DB("clock").C("times")
 	handler := &handler{users, times}
 
+	http.Handle("/", http.FileServer(http.Dir("./public")))
 	http.HandleFunc("/api/login", handler.login)
 	http.HandleFunc("/api/logout", handler.logout)
 	http.HandleFunc("/api/loginstatus", handler.loginStatus)
@@ -326,5 +329,3 @@ func main() {
 	http.HandleFunc("/api/deletetime", handler.deleteTime)
 	http.ListenAndServe(":3000", nil)
 }
-
-// TODO check if email already exists, check if time already exists, add proper statuses to responses
