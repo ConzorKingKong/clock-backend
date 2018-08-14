@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"golang.org/x/crypto/bcrypt"
@@ -10,6 +9,7 @@ import (
 	"github.com/gorilla/sessions"
 	mgo "gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
+	"regexp"
 )
 
 type time struct {
@@ -43,7 +43,8 @@ type dummyResponse struct {
 }
 
 type errorResponse struct {
-	Error string `json:"error"`
+	Error    string `json:"error"`
+	LoggedIn bool   `json:"loggedIn"`
 }
 
 type handler struct {
@@ -76,17 +77,31 @@ func (handler *handler) login(w http.ResponseWriter, r *http.Request) {
 	if decodeErr != nil {
 		panic(decodeErr)
 	}
+	re := regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
 	var u user
-	searchErr := handler.Users.Find(bson.M{"email": i.Email}).One(&u)
-	if searchErr != nil {
-		res := errorResponse{"no user found for that email"}
-		json.NewEncoder(w).Encode(res)
-		panic(searchErr)
+	if re.MatchString(i.Email) == false {
+		usernameSearchErr := handler.Users.Find(bson.M{"username": i.Email}).One(&u)
+		if usernameSearchErr != nil {
+			res := errorResponse{"No user found for that username", false}
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			json.NewEncoder(w).Encode(res)
+			return
+		}
+	} else {
+		emailSearchErr := handler.Users.Find(bson.M{"email": i.Email}).One(&u)
+		if emailSearchErr != nil {
+			res := errorResponse{"No user found for that email", false}
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			json.NewEncoder(w).Encode(res)
+			return
+		}
 	}
 	hashErr := bcrypt.CompareHashAndPassword([]byte(u.Password), []byte(i.Password))
 	if hashErr != nil {
-		json.NewEncoder(w).Encode(errorResponse{"Incorrect password"})
-		panic(hashErr)
+		res := errorResponse{"Incorrect Password", false}
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(res)
+		return
 	}
 	session, sessionErr := store.Get(r, "User")
 	if sessionErr != nil {
@@ -135,7 +150,7 @@ func (handler *handler) loginStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := session.Values["id"].(string)
 	if !ok {
-		res := errorResponse{"cookie of id is not type string"}
+		res := errorResponse{"cookie of id is not type string", false}
 		json.NewEncoder(w).Encode(res)
 		return
 	}
@@ -161,6 +176,21 @@ func (handler *handler) newUser(w http.ResponseWriter, r *http.Request) {
 	err := decoder.Decode(&u)
 	if err != nil {
 		panic(err)
+	}
+	var i user
+	handler.Users.Find(bson.M{"email": u.Email}).One(&i)
+	if i.Email != "" {
+		res := errorResponse{"This email already has an account", false}
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(res)
+		return
+	}
+	handler.Users.Find(bson.M{"username": u.Username}).One(&i)
+	if i.Username != "" {
+		res := errorResponse{"This username is already associated with an account. Please choose a different username", false}
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(res)
+		return
 	}
 	u.ID = bson.NewObjectId()
 	hashedPassword, hashErr := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)
@@ -191,7 +221,7 @@ func (handler *handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := session.Values["id"].(string)
 	if !ok {
-		json.NewEncoder(w).Encode(errorResponse{"You are not signed in"})
+		json.NewEncoder(w).Encode(errorResponse{"You are not signed in", false})
 	}
 	handler.Users.Remove(bson.M{"_id": bson.ObjectIdHex(id)})
 	res := userResponse{false, "", "", []time{}}
@@ -210,7 +240,7 @@ func (handler *handler) newTime(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := session.Values["id"].(string)
 	if !ok {
-		res := errorResponse{"owner ID was not string"}
+		res := errorResponse{"owner ID was not string", false}
 		json.NewEncoder(w).Encode(res)
 		return
 	}
@@ -243,7 +273,7 @@ func (handler *handler) editTime(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := session.Values["id"].(string)
 	if !ok {
-		res := errorResponse{"owner ID was not string"}
+		res := errorResponse{"owner ID was not string", false}
 		json.NewEncoder(w).Encode(res)
 		return
 	}
@@ -263,7 +293,7 @@ func (handler *handler) editTime(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(times)
 	} else {
 		// The person removing the time doesn't have a matching cookie ID, send error
-		json.NewEncoder(w).Encode(errorResponse{"You don't own this time"})
+		json.NewEncoder(w).Encode(errorResponse{"You don't own this time", true})
 	}
 
 }
@@ -280,14 +310,13 @@ func (handler *handler) deleteTime(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := session.Values["id"].(string)
 	if !ok {
-		res := errorResponse{"owner ID was not string"}
+		res := errorResponse{"owner ID was not string", false}
 		json.NewEncoder(w).Encode(res)
 		return
 	}
 	decoder := json.NewDecoder(r.Body)
 	var t time
 	decoder.Decode(&t)
-	fmt.Print("t ", t)
 	var origtime time
 	searchErr := handler.Times.FindId(t.ID).One(&origtime)
 	if searchErr != nil {
@@ -304,7 +333,7 @@ func (handler *handler) deleteTime(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(times)
 	} else {
 		// The person removing the time doesn't have a matching cookie ID, send error
-		json.NewEncoder(w).Encode(errorResponse{"You don't own this time"})
+		json.NewEncoder(w).Encode(errorResponse{"You don't own this time", true})
 	}
 }
 
