@@ -10,6 +10,7 @@ import (
 	mgo "gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 	"regexp"
+	"os"
 )
 
 type time struct {
@@ -47,6 +48,11 @@ type errorResponse struct {
 	LoggedIn bool   `json:"loggedIn"`
 }
 
+type authentication struct {
+	Login string `json:"login"`
+	Password string `json:"password"`
+}
+
 type handler struct {
 	Users *mgo.Collection
 	Times *mgo.Collection
@@ -63,7 +69,9 @@ func writeHeaders(w http.ResponseWriter) {
 	headers.Set("Content-Type", "application/json")
 }
 
-var store = sessions.NewCookieStore([]byte("SECRET"))
+var SECRET = os.Getenv("SECRET")
+
+var store = sessions.NewCookieStore([]byte(SECRET))
 
 func (handler *handler) login(w http.ResponseWriter, r *http.Request) {
 	writeHeaders(w)
@@ -72,22 +80,22 @@ func (handler *handler) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	decoder := json.NewDecoder(r.Body)
-	var i user
+	var i authentication
 	decodeErr := decoder.Decode(&i)
 	if decodeErr != nil {
 		panic(decodeErr)
 	}
 	reEmail := regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
 	var u user
-	if reEmail.MatchString(i.Email) == false {
+	if reEmail.MatchString(i.Login) == false {
 		reUsername := regexp.MustCompile("@")
-		if reUsername.MatchString(i.Email) == true {
+		if reUsername.MatchString(i.Login) == true {
 			res := errorResponse{"Username cannot contain an @ symbol", false}
 			w.WriteHeader(http.StatusUnprocessableEntity)
 			json.NewEncoder(w).Encode(res)
 			return
 		}
-		usernameSearchErr := handler.Users.Find(bson.M{"username": i.Email}).One(&u)
+		usernameSearchErr := handler.Users.Find(bson.M{"username": i.Login}).One(&u)
 		if usernameSearchErr != nil {
 			res := errorResponse{"No user found for that username", false}
 			w.WriteHeader(http.StatusUnprocessableEntity)
@@ -95,7 +103,7 @@ func (handler *handler) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		emailSearchErr := handler.Users.Find(bson.M{"email": i.Email}).One(&u)
+		emailSearchErr := handler.Users.Find(bson.M{"email": i.Login}).One(&u)
 		if emailSearchErr != nil {
 			res := errorResponse{"No user found for that email", false}
 			w.WriteHeader(http.StatusUnprocessableEntity)
@@ -183,6 +191,20 @@ func (handler *handler) newUser(w http.ResponseWriter, r *http.Request) {
 	err := decoder.Decode(&u)
 	if err != nil {
 		panic(err)
+	}
+	reEmail := regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
+	if reEmail.MatchString(u.Email) != true {
+		res := errorResponse{"Please use a valid email", false}
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(res)
+		return
+	}
+	reUsername := regexp.MustCompile("@")
+	if reUsername.MatchString(u.Username) == true {
+		res := errorResponse{"Username cannot contain an @ symbol", false}
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(res)
+		return
 	}
 	var i user
 	handler.Users.Find(bson.M{"email": u.Email}).One(&i)
@@ -297,6 +319,19 @@ func (handler *handler) editTime(w http.ResponseWriter, r *http.Request) {
 	}
 	var t time
 	json.NewDecoder(r.Body).Decode(&t)
+	var allTimes []time
+	allSearchErr := handler.Times.Find(bson.M{"ownerid": bson.ObjectIdHex(id)}).All(&allTimes)
+	if allSearchErr != nil {
+		panic(allSearchErr)
+	}
+	for _, oldTime := range allTimes {
+		if oldTime.Hours == t.Hours &&  oldTime.Minutes == t.Minutes && oldTime.Seconds == t.Seconds && oldTime.Ampm == t.Ampm && oldTime.ID != t.ID { 
+			res := errorResponse{"Time already exists. If you want to change the days, please edit the original time", true}
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(res)
+			return
+		}
+	}
 	var origtime time
 	searchErr := handler.Times.FindId(t.ID).One(&origtime)
 	if searchErr != nil {
