@@ -11,6 +11,7 @@ import (
 	"gopkg.in/mgo.v2/bson"
 	"regexp"
 	"os"
+	"strings"
 )
 
 type time struct {
@@ -27,6 +28,7 @@ type user struct {
 	ID       bson.ObjectId `json:"_id" bson:"_id,omitempty"`
 	Email    string        `json:"email"`
 	Username string        `json:"username"`
+	CleanUsername string   `json:"cleanUsername" bson:"cleanUsername"`
 	Password string        `json:"password"`
 	Times    []time        `json:"times"`
 }
@@ -40,6 +42,7 @@ type userResponse struct {
 
 type dummyResponse struct {
 	LoggedIn bool   `json:"loggedIn"`
+	Username string `json:"username"`
 	Times    []time `json:"times"`
 }
 
@@ -85,8 +88,26 @@ func (handler *handler) login(w http.ResponseWriter, r *http.Request) {
 	if decodeErr != nil {
 		panic(decodeErr)
 	}
-	reEmail := regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
+	if i.Login == "" {
+		res := errorResponse{"Login cannot be blank", false}
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(res)
+		return
+	}
+	if len(i.Password) <= 7 {
+		res := errorResponse{"Password minimum length is 8 characters", false}
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(res)
+		return
+	}
+	if len(i.Password) >= 41 {
+		res := errorResponse{"Password max length is 40 characters", false}
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(res)
+		return
+	}
 	var u user
+	reEmail := regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
 	if reEmail.MatchString(i.Login) == false {
 		reUsername := regexp.MustCompile("@")
 		if reUsername.MatchString(i.Login) == true {
@@ -95,7 +116,13 @@ func (handler *handler) login(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(res)
 			return
 		}
-		usernameSearchErr := handler.Users.Find(bson.M{"username": i.Login}).One(&u)
+		if len(i.Login) >= 21 {
+			res := errorResponse{"Username max length is 20 characters", false}
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			json.NewEncoder(w).Encode(res)
+			return
+		}
+		usernameSearchErr := handler.Users.Find(bson.M{"cleanUsername": i.Login}).One(&u)
 		if usernameSearchErr != nil {
 			res := errorResponse{"No user found for that username", false}
 			w.WriteHeader(http.StatusUnprocessableEntity)
@@ -103,6 +130,12 @@ func (handler *handler) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
+		if len(i.Login) >= 255 {
+			res := errorResponse{"Email max length is 254 characters", false}
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			json.NewEncoder(w).Encode(res)
+			return
+		}
 		emailSearchErr := handler.Users.Find(bson.M{"email": i.Login}).One(&u)
 		if emailSearchErr != nil {
 			res := errorResponse{"No user found for that email", false}
@@ -148,7 +181,7 @@ func (handler *handler) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	session.Values["id"] = nil
 	session.Save(r, w)
-	dummy := dummyResponse{false, []time{}}
+	dummy := dummyResponse{false, "", []time{}}
 	json.NewEncoder(w).Encode(dummy)
 }
 
@@ -159,7 +192,7 @@ func (handler *handler) loginStatus(w http.ResponseWriter, r *http.Request) {
 		panic(sessionErr)
 	}
 	if session.Values["id"] == nil {
-		dummy := dummyResponse{false, []time{}}
+		dummy := dummyResponse{false, "", []time{}}
 		json.NewEncoder(w).Encode(dummy)
 		return
 	}
@@ -192,9 +225,40 @@ func (handler *handler) newUser(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		panic(err)
 	}
+	if u.Username == "" {
+		res := errorResponse{"Username cannot be blank", false}
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(res)
+		return
+	}
+	u.CleanUsername = strings.ToLower(u.Username)
+	if len(u.Password) <= 7 {
+		res := errorResponse{"Password minimum length is 8 characters", false}
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(res)
+		return
+	}
+	if len(u.Password) >= 41 {
+		res := errorResponse{"Password max length is 40 characters", false}
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(res)
+		return
+	}
+	if len(u.Email) >= 255 {
+		res := errorResponse{"Email max length is 254 characters", false}
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(res)
+		return
+	}
 	reEmail := regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
 	if reEmail.MatchString(u.Email) != true {
 		res := errorResponse{"Please use a valid email", false}
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		json.NewEncoder(w).Encode(res)
+		return
+	}
+	if len(u.Username) >= 21 {
+		res := errorResponse{"Username max length is 20 characters", false}
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		json.NewEncoder(w).Encode(res)
 		return
@@ -214,9 +278,22 @@ func (handler *handler) newUser(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(res)
 		return
 	}
-	handler.Users.Find(bson.M{"username": u.Username}).One(&i)
-	if i.Username != "" {
+	// handle logic to look for search username
+	handler.Users.Find(bson.M{"cleanUsername": u.CleanUsername}).One(&i)
+	if i.CleanUsername != "" {
 		res := errorResponse{"This username is already associated with an account. Please choose a different username", false}
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(res)
+		return
+	}
+	if len(u.Password) <= 7 {
+		res := errorResponse{"Password must be at least 8 characters", false}
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(res)
+		return
+	}
+	if len(u.Password) >= 41 {
+		res := errorResponse{"Password can't be greater than 40 characters", false}
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(res)
 		return
@@ -253,6 +330,7 @@ func (handler *handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(errorResponse{"You are not signed in", false})
 	}
 	handler.Users.Remove(bson.M{"_id": bson.ObjectIdHex(id)})
+	// delete session
 	res := userResponse{false, "", "", []time{}}
 	json.NewEncoder(w).Encode(res)
 }
