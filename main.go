@@ -63,7 +63,7 @@ func writeHeaders(w http.ResponseWriter) {
 	headers.Set("Content-Type", "application/json")
 }
 
-var store = sessions.NewCookieStore([]byte("poopies"))
+var store = sessions.NewCookieStore([]byte("SECRET"))
 
 func (handler *handler) login(w http.ResponseWriter, r *http.Request) {
 	writeHeaders(w)
@@ -77,9 +77,16 @@ func (handler *handler) login(w http.ResponseWriter, r *http.Request) {
 	if decodeErr != nil {
 		panic(decodeErr)
 	}
-	re := regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
+	reEmail := regexp.MustCompile("^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$")
 	var u user
-	if re.MatchString(i.Email) == false {
+	if reEmail.MatchString(i.Email) == false {
+		reUsername := regexp.MustCompile("@")
+		if reUsername.MatchString(i.Email) == true {
+			res := errorResponse{"Username cannot contain an @ symbol", false}
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			json.NewEncoder(w).Encode(res)
+			return
+		}
 		usernameSearchErr := handler.Users.Find(bson.M{"username": i.Email}).One(&u)
 		if usernameSearchErr != nil {
 			res := errorResponse{"No user found for that username", false}
@@ -112,10 +119,10 @@ func (handler *handler) login(w http.ResponseWriter, r *http.Request) {
 	if sessionSaveErr != nil {
 		panic(sessionSaveErr)
 	}
-	res := userResponse{true, u.Email, u.Username, []time{}}
 	var userTimes []time
-	handler.Times.Find(bson.M{"ownerId": u.ID}).All(&userTimes)
-	if userTimes != nil {
+	handler.Times.Find(bson.M{"ownerid": u.ID}).All(&userTimes)
+	res := userResponse{true, u.Email, u.Username, userTimes}
+	if userTimes == nil {
 		res.Times = []time{}
 	}
 	json.NewEncoder(w).Encode(res)
@@ -247,6 +254,17 @@ func (handler *handler) newTime(w http.ResponseWriter, r *http.Request) {
 	var t time
 	decoder := json.NewDecoder(r.Body)
 	decoder.Decode(&t)
+	// logic to check if time already exists
+	var oldTimes []time
+	handler.Times.Find(bson.M{"ownerid": bson.ObjectIdHex(id)}).All(&oldTimes)
+	for _, oldTime := range oldTimes {
+		if oldTime.Hours == t.Hours &&  oldTime.Minutes == t.Minutes && oldTime.Seconds == t.Seconds && oldTime.Ampm == t.Ampm{ 
+			res := errorResponse{"Time already exists. If you want to change the days, please edit the original time", true}
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(res)
+			return
+		}
+	}
 	t.OwnerID = bson.ObjectIdHex(id)
 	t.ID = bson.NewObjectId()
 	insertErr := handler.Times.Insert(t)
