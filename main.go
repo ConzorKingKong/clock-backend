@@ -7,8 +7,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/gorilla/sessions"
-	mgo "gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
+	"github.com/globalsign/mgo"
+	"github.com/globalsign/mgo/bson"
 	"regexp"
 	"os"
 	"strings"
@@ -469,7 +469,7 @@ func (handler *handler) deleteTime(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	session, connErr := mgo.Dial("mongodb://127.0.0.1/clock")
+	session, connErr := mgo.Dial(os.Getenv("MONGODB_URI"))
 	if connErr != nil {
 		panic(connErr)
 	}
