@@ -5,7 +5,7 @@ stages:
 
 install_dependencies:
   stage: install
-  image: goalng
+  image: golang
   script:
     - go get github.com/gorilla/sessions
     - go get golang.org/x/crypto/bcrypt
