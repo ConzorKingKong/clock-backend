@@ -14,6 +14,8 @@ install_dependencies:
     - ls
     - ls $GOPATH/src
     - cd $GOPATH
+    - pwd
+    - ls
   artifacts:
     paths:
       - src/
