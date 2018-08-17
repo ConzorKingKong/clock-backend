@@ -7,10 +7,10 @@ install_dependencies:
   stage: install
   image: golang
   script:
-    - go get github.com/gorilla/sessions
-    - go get golang.org/x/crypto/bcrypt
-    - go get github.com/globalsign/mgo
-    - ls src
+    - go get -v github.com/gorilla/sessions
+    - go get -v golang.org/x/crypto/bcrypt
+    - go get -v github.com/globalsign/mgo
+    - ls
   artifacts:
     paths:
       - src/
