@@ -8,3 +8,4 @@ The backend is written in Go, the frontend is React.
 `MONGODB_URI`
 `SECRET`
 
+For local testing with Docker, run `go build . && docker-compose up`

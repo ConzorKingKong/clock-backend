@@ -1,0 +1,20 @@
+version: "3"
+services:
+  nginx:
+    image: nginx
+    volumes:
+      - "./conf.d:/etc/nginx/conf.d"
+    ports:
+      - "3000:80"
+  frontend:
+    image: clockfront
+    expose:
+      - "3000"
+  backend:
+    build: 
+      context: .
+      args:
+        SECRET: $SECRET
+        MONGODB_URI: $MONGODB_URI
+    expose:
+      - "3000"
