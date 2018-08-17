@@ -10,8 +10,6 @@ install_dependencies:
     - go get github.com/gorilla/sessions
     - go get golang.org/x/crypto/bcrypt
     - go get github.com/globalsign/mgo
-    - ls $GOPATH/src
-    - ls $GOROOT/src
   artifacts:
     paths:
       - /go/src
@@ -21,7 +19,6 @@ build:
   image: golang
   script:
     - ls $GOPATH/src
-    - ls $GOROOT/src
     - go build .
 
 register_container_prod:
