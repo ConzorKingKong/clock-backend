@@ -12,7 +12,7 @@ install_dependencies:
     - go get github.com/globalsign/mgo
   artifacts:
     paths:
-      - /go/src
+      - /go/src/
 
 build:
   stage: build
