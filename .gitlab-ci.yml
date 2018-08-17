@@ -1,0 +1,31 @@
+stages:
+  - install
+  - build
+  - register:prod
+
+install_dependencies:
+  stage: install
+  image: goalng
+  script:
+    - go get github.com/gorilla/sessions
+    - go get golang.org/x/crypto/bcrypt
+    - go get github.com/globalsign/mgo
+  artifacts:
+    paths:
+      - /go/src
+
+build:
+  stage: build
+  image: golang
+  script:
+    - go build .
+
+register_container_prod:
+  stage: register:prod
+  image: docker:git
+  services:
+    - docker:dind
+  script:
+    - docker login -u conzorkingkong -p $PASSWORD registry.gitlab.com
+    - docker build --build-arg SECRET=$SECRET --build-arg MONGODB_URI=$MONGODB_URI -t registry.gitlab.com/conzorkingkong/clock-backend .
+    - docker push registry.gitlab.com/conzorkingkong/clock-backend:latest
