@@ -7,7 +7,7 @@ services:
     ports:
       - "3000:80"
   frontend:
-    image: clockfront
+    image: registry.gitlab.com/conzorkingkong/clock
     expose:
       - "3000"
   backend:
