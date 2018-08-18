@@ -2,6 +2,7 @@ stages:
   - install
   - build
   - register:prod
+  - deploy:prod
 
 install_dependencies:
   stage: install
@@ -32,3 +33,10 @@ register_container_prod:
     - docker login -u conzorkingkong -p $PASSWORD registry.gitlab.com
     - docker build --build-arg SECRET=$SECRET --build-arg MONGODB_URI=$MONGODB_URI -t registry.gitlab.com/conzorkingkong/clock-backend .
     - docker push registry.gitlab.com/conzorkingkong/clock-backend:latest
+
+deploy_container_prod:
+  stage: deploy:prod
+  image: debian
+  script:
+    - apt-get update && apt-get install curl
+    - curl https://clock.connorpeshek.me/updateback
