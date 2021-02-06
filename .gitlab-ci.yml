@@ -38,5 +38,5 @@ deploy_container_prod:
   stage: deploy:prod
   image: debian
   script:
-    - apt-get update && apt-get install curl
+    - apt-get update && apt-get install -y curl
     - curl https://clock.connorpeshek.me/updateback
