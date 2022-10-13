@@ -1,7 +1,9 @@
 stages:
   - install
   - build
+  - register:dev
   - register:prod
+  - deploy:dev
   - deploy:prod
 
 install_dependencies:
@@ -24,6 +26,16 @@ build:
     - mv src/* $GOPATH/src
     - go build .
 
+register_container_dev:
+  stage: register:dev
+  image: docker:git
+  services:
+    - docker:dind
+  script:
+    - docker login -u conzorkingkong -p $PASSWORD registry.gitlab.com
+    - docker build --build-arg SECRET=$SECRET --build-arg MONGODB_URI=$MONGODB_URI -t registry.gitlab.com/conzorkingkong/clock-backend .
+    - docker push registry.gitlab.com/conzorkingkong/clock-backend/dev:latest
+
 register_container_prod:
   stage: register:prod
   image: docker:git
@@ -33,6 +45,13 @@ register_container_prod:
     - docker login -u conzorkingkong -p $PASSWORD registry.gitlab.com
     - docker build --build-arg SECRET=$SECRET --build-arg MONGODB_URI=$MONGODB_URI -t registry.gitlab.com/conzorkingkong/clock-backend .
     - docker push registry.gitlab.com/conzorkingkong/clock-backend:latest
+
+deploy_container_dev:
+  stage: deploy:dev
+  image: debian
+  script:
+    - apt-get update && apt-get install -y curl
+    - curl https://clock.connorpeshek.me/updateback
 
 deploy_container_prod:
   stage: deploy:prod
