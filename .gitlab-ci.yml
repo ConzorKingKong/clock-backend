@@ -6,7 +6,7 @@ stages:
 
 install_dependencies:
   stage: install
-  image: golang
+  image: golang:1.10
   script:
     - go get -v github.com/gorilla/sessions
     - go get -v golang.org/x/crypto/bcrypt
@@ -19,7 +19,7 @@ install_dependencies:
 
 build:
   stage: build
-  image: golang
+  image: golang:1.10
   script:
     - mv src/* $GOPATH/src
     - go build .
