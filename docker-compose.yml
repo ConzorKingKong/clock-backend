@@ -6,11 +6,18 @@ services:
       - "./conf.d:/etc/nginx/conf.d"
     ports:
       - "3000:80"
+  mongo:
+    container_name: mongo
+    image: mongo:3.5
+    ports:
+      - '27017:27017'
   frontend:
     image: registry.gitlab.com/conzorkingkong/clock
     expose:
       - "3000"
   backend:
+    depends_on:
+      - mongo
     build: 
       context: .
       args:
