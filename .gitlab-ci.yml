@@ -28,6 +28,8 @@ build:
 
 register_container_dev:
   stage: register:dev
+  only:
+    - development
   image: docker:git
   services:
     - docker:dind
@@ -38,6 +40,8 @@ register_container_dev:
 
 register_container_prod:
   stage: register:prod
+  only:
+    - master
   image: docker:git
   services:
     - docker:dind
@@ -48,6 +52,8 @@ register_container_prod:
 
 deploy_container_dev:
   stage: deploy:dev
+  only:
+    - development
   image: debian
   script:
     - apt-get update && apt-get install -y curl
@@ -55,6 +61,8 @@ deploy_container_dev:
 
 deploy_container_prod:
   stage: deploy:prod
+  only:
+    - master
   image: debian
   script:
     - apt-get update && apt-get install -y curl
