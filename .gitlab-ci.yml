@@ -34,7 +34,7 @@ register_container_dev:
   services:
     - docker:dind
   script:
-    - docker login -u conzorkingkong -p $PASSWORD registry.gitlab.com
+    - docker login -u $USERNAME -p $PASSWORD registry.gitlab.com
     - docker build --build-arg SECRET=$SECRET --build-arg MONGODB_URI=$MONGODB_URI -t registry.gitlab.com/conzorkingkong/clock-backend/dev .
     - docker push registry.gitlab.com/conzorkingkong/clock-backend/dev:latest
 
@@ -46,7 +46,7 @@ register_container_prod:
   services:
     - docker:dind
   script:
-    - docker login -u conzorkingkong -p $PASSWORD registry.gitlab.com
+    - docker login -u $USERNAME -p $PASSWORD registry.gitlab.com
     - docker build --build-arg SECRET=$SECRET --build-arg MONGODB_URI=$MONGODB_URI -t registry.gitlab.com/conzorkingkong/clock-backend .
     - docker push registry.gitlab.com/conzorkingkong/clock-backend:latest
 
