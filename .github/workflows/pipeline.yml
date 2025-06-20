@@ -1,10 +1,8 @@
-name: Build Test Deploy
+name: Build Deploy
 
 on:
   push:
-    branches: [ "master", "dev" ]
-  pull_request:
-    branches: [ "master", "dev" ]
+    branches: [ "master", "development" ]
 
 jobs:
   build:
@@ -29,36 +27,37 @@ jobs:
           linux/amd64
           linux/arm64
 
-  test:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+  # TODO ADD TESTS
+  # test:
+  #   needs: build
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
       
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+  #     - name: Set up QEMU
+  #       uses: docker/setup-qemu-action@v3
       
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+  #     - name: Set up Docker Buildx
+  #       uses: docker/setup-buildx-action@v3
 
-      - name: Build the app image
-        uses: docker/build-push-action@v4
-        with:
-          push: false
-          load: true
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64
-          tags: conazon/cart:test
+  #     - name: Build the app image
+  #       uses: docker/build-push-action@v4
+  #       with:
+  #         push: false
+  #         load: true
+  #         context: .
+  #         file: ./Dockerfile
+  #         platforms: linux/amd64
+  #         tags: clock/backend
         
-      - name: Run tests in Docker container
-        run: docker run --rm conazon/cart:test go test ./...
+      # - name: Run tests in Docker container
+      #   run: docker run --rm clock/backend go test ./...
   
   deploy-latest:
-    needs: test
+    needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/master'
     steps:
       - name: checkout code
         uses: actions/checkout@v4
@@ -92,9 +91,9 @@ jobs:
           tags: ${{ steps.login-ecr.outputs.registry }}/clock/backend:latest
   
   deploy-dev:
-    needs: test
+    needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/dev'
+    if: github.ref == 'refs/heads/development'
     steps:
       - name: checkout code
         uses: actions/checkout@v4
