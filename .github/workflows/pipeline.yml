@@ -1,0 +1,137 @@
+name: Build Test Deploy
+
+on:
+  push:
+    branches: [ "master", "dev" ]
+  pull_request:
+    branches: [ "master", "dev" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Build the app image
+      uses: docker/build-push-action@v4
+      with:
+        push: false
+        context: .
+        build-args: |
+            SECRET=${{ secrets.SECRET }}
+            MONGODB_URI=${{ secrets.MONGODB_URI_DEV }}
+        file: ./Dockerfile
+        platforms: | 
+          linux/amd64
+          linux/arm64
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the app image
+        uses: docker/build-push-action@v4
+        with:
+          push: false
+          load: true
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          tags: conazon/cart:test
+        
+      - name: Run tests in Docker container
+        run: docker run --rm conazon/cart:test go test ./...
+  
+  deploy-latest:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4 # More information on this action can be found below in the 'AWS Credentials' section
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Build the app image
+        uses: docker/build-push-action@v4
+        with:
+          push: true
+          context: .
+          build-args: |
+            SECRET=${{ secrets.SECRET }}
+            MONGODB_URI=${{ secrets.MONGODB_URI }}
+          file: ./Dockerfile
+          platforms: | 
+            linux/amd64
+            linux/arm64
+          tags: ${{ steps.login-ecr.outputs.registry }}/clock/backend:latest
+  
+  deploy-dev:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/dev'
+    steps:
+      - name: checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4 # More information on this action can be found below in the 'AWS Credentials' section
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Build the app image
+        uses: docker/build-push-action@v4
+        with:
+          push: true
+          context: .
+          build-args: |
+            SECRET=${{ secrets.SECRET }}
+            MONGODB_URI=${{ secrets.MONGODB_URI_DEV }}
+          file: ./Dockerfile
+          platforms: | 
+            linux/amd64
+            linux/arm64
+          tags: ${{ steps.login-ecr.outputs.registry }}/clock/backend:dev
