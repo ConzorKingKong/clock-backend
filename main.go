@@ -1,22 +1,27 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
+	"os"
+	"regexp"
+	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/gorilla/sessions"
-	"github.com/globalsign/mgo"
-	"github.com/globalsign/mgo/bson"
-	"regexp"
-	"os"
-	"strings"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
-type time struct {
-	ID      bson.ObjectId `json:"id" bson:"_id,omitempty"`
-	OwnerID bson.ObjectId `json:"ownerid" bson:"ownerid,omitempty"`
+type alarm struct {
+	ID      bson.ObjectID `json:"id" bson:"_id,omitempty"`
+	OwnerID bson.ObjectID `json:"ownerid" bson:"ownerid,omitempty"`
 	Hours   int           `json:"hours"`
 	Minutes int           `json:"minutes"`
 	Seconds int           `json:"seconds"`
@@ -25,25 +30,25 @@ type time struct {
 }
 
 type user struct {
-	ID       bson.ObjectId `json:"_id" bson:"_id,omitempty"`
-	Email    string        `json:"email"`
-	Username string        `json:"username"`
-	CleanUsername string   `json:"cleanUsername" bson:"cleanUsername"`
-	Password string        `json:"password"`
-	Times    []time        `json:"times"`
+	ID            bson.ObjectID `json:"_id" bson:"_id,omitempty"`
+	Email         string        `json:"email"`
+	Username      string        `json:"username"`
+	CleanUsername string        `json:"cleanUsername" bson:"cleanUsername"`
+	Password      string        `json:"password"`
+	Times         []alarm       `json:"times"`
 }
 
 type userResponse struct {
-	LoggedIn bool   `json:"loggedIn"`
-	Email    string `json:"email"`
-	Username string `json:"username"`
-	Times    []time `json:"times"`
+	LoggedIn bool    `json:"loggedIn"`
+	Email    string  `json:"email"`
+	Username string  `json:"username"`
+	Times    []alarm `json:"times"`
 }
 
 type dummyResponse struct {
-	LoggedIn bool   `json:"loggedIn"`
-	Username string `json:"username"`
-	Times    []time `json:"times"`
+	LoggedIn bool    `json:"loggedIn"`
+	Username string  `json:"username"`
+	Times    []alarm `json:"times"`
 }
 
 type errorResponse struct {
@@ -52,13 +57,13 @@ type errorResponse struct {
 }
 
 type authentication struct {
-	Login string `json:"login"`
+	Login    string `json:"login"`
 	Password string `json:"password"`
 }
 
 type handler struct {
-	Users *mgo.Collection
-	Times *mgo.Collection
+	Users *mongo.Collection
+	Times *mongo.Collection
 }
 
 func writeHeaders(w http.ResponseWriter) {
@@ -122,8 +127,8 @@ func (handler *handler) login(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(res)
 			return
 		}
-		usernameSearchErr := handler.Users.Find(bson.M{"cleanUsername": i.Login}).One(&u)
-		if usernameSearchErr != nil {
+		usernameSearchErr := handler.Users.FindOne(context.Background(), bson.M{"cleanUsername": i.Login}).Decode(&u)
+		if usernameSearchErr == mongo.ErrNoDocuments {
 			res := errorResponse{"No user found for that username", false}
 			w.WriteHeader(http.StatusUnprocessableEntity)
 			json.NewEncoder(w).Encode(res)
@@ -136,8 +141,8 @@ func (handler *handler) login(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(res)
 			return
 		}
-		emailSearchErr := handler.Users.Find(bson.M{"email": i.Login}).One(&u)
-		if emailSearchErr != nil {
+		emailSearchErr := handler.Users.FindOne(context.Background(), bson.M{"email": i.Login}).Decode(&u)
+		if emailSearchErr == mongo.ErrNoDocuments {
 			res := errorResponse{"No user found for that email", false}
 			w.WriteHeader(http.StatusUnprocessableEntity)
 			json.NewEncoder(w).Encode(res)
@@ -160,11 +165,14 @@ func (handler *handler) login(w http.ResponseWriter, r *http.Request) {
 	if sessionSaveErr != nil {
 		panic(sessionSaveErr)
 	}
-	var userTimes []time
-	handler.Times.Find(bson.M{"ownerid": u.ID}).All(&userTimes)
+	var userTimes []alarm
+	cursor, err := handler.Times.Find(context.Background(), bson.M{"ownerid": u.ID})
+	if err == nil {
+		cursor.All(context.Background(), &userTimes)
+	}
 	res := userResponse{true, u.Email, u.Username, userTimes}
 	if userTimes == nil {
-		res.Times = []time{}
+		res.Times = []alarm{}
 	}
 	json.NewEncoder(w).Encode(res)
 }
@@ -181,7 +189,7 @@ func (handler *handler) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	session.Values["id"] = nil
 	session.Save(r, w)
-	dummy := dummyResponse{false, "", []time{}}
+	dummy := dummyResponse{false, "", []alarm{}}
 	json.NewEncoder(w).Encode(dummy)
 }
 
@@ -192,7 +200,7 @@ func (handler *handler) loginStatus(w http.ResponseWriter, r *http.Request) {
 		panic(sessionErr)
 	}
 	if session.Values["id"] == nil {
-		dummy := dummyResponse{false, "", []time{}}
+		dummy := dummyResponse{false, "", []alarm{}}
 		json.NewEncoder(w).Encode(dummy)
 		return
 	}
@@ -203,10 +211,12 @@ func (handler *handler) loginStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var u user
-	var t []time
-	handler.Users.Find(bson.M{"_id": bson.ObjectIdHex(id)}).One(&u)
-	handler.Times.Find(bson.M{"ownerid": bson.ObjectIdHex(id)}).All(&t)
-	res := userResponse{true, u.Email, u.Username, []time{}}
+	var t []alarm
+	oid, _ := bson.ObjectIDFromHex(id)
+	handler.Users.FindOne(context.Background(), bson.M{"_id": oid}).Decode(&u)
+	cursor, _ := handler.Times.Find(context.Background(), bson.M{"ownerid": oid})
+	cursor.All(context.Background(), &t)
+	res := userResponse{true, u.Email, u.Username, []alarm{}}
 	if t != nil {
 		res.Times = t
 	}
@@ -271,16 +281,16 @@ func (handler *handler) newUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var i user
-	handler.Users.Find(bson.M{"email": u.Email}).One(&i)
-	if i.Email != "" {
+	err = handler.Users.FindOne(context.Background(), bson.M{"email": u.Email}).Decode(&i)
+	if err == nil {
 		res := errorResponse{"This email already has an account", false}
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(res)
 		return
 	}
 	// handle logic to look for search username
-	handler.Users.Find(bson.M{"cleanUsername": u.CleanUsername}).One(&i)
-	if i.CleanUsername != "" {
+	err = handler.Users.FindOne(context.Background(), bson.M{"cleanUsername": u.CleanUsername}).Decode(&i)
+	if err == nil {
 		res := errorResponse{"This username is already associated with an account. Please choose a different username", false}
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(res)
@@ -298,20 +308,20 @@ func (handler *handler) newUser(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(res)
 		return
 	}
-	u.ID = bson.NewObjectId()
+	u.ID = bson.NewObjectID()
 	hashedPassword, hashErr := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)
 	if hashErr != nil {
 		panic(hashErr)
 	}
 	u.Password = string(hashedPassword)
-	handler.Users.Insert(u)
+	handler.Users.InsertOne(context.Background(), u)
 	session, sessionErr := store.Get(r, "User")
 	if sessionErr != nil {
 		panic(sessionErr)
 	}
 	session.Values["id"] = u.ID.Hex()
 	session.Save(r, w)
-	res := userResponse{true, u.Email, u.Username, []time{}}
+	res := userResponse{true, u.Email, u.Username, []alarm{}}
 	json.NewEncoder(w).Encode(res)
 }
 
@@ -329,9 +339,10 @@ func (handler *handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		json.NewEncoder(w).Encode(errorResponse{"You are not signed in", false})
 	}
-	handler.Users.Remove(bson.M{"_id": bson.ObjectIdHex(id)})
+	oid, _ := bson.ObjectIDFromHex(id)
+	handler.Users.DeleteOne(context.Background(), bson.M{"_id": oid})
 	// delete session
-	res := userResponse{false, "", "", []time{}}
+	res := userResponse{false, "", "", []alarm{}}
 	json.NewEncoder(w).Encode(res)
 }
 
@@ -351,28 +362,33 @@ func (handler *handler) newTime(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(res)
 		return
 	}
-	var t time
+	var t alarm
 	decoder := json.NewDecoder(r.Body)
 	decoder.Decode(&t)
 	// logic to check if time already exists
-	var oldTimes []time
-	handler.Times.Find(bson.M{"ownerid": bson.ObjectIdHex(id)}).All(&oldTimes)
+	var oldTimes []alarm
+	oid, _ := bson.ObjectIDFromHex(id)
+	cursor, _ := handler.Times.Find(context.Background(), bson.M{"ownerid": oid})
+	cursor.All(context.Background(), &oldTimes)
 	for _, oldTime := range oldTimes {
-		if oldTime.Hours == t.Hours &&  oldTime.Minutes == t.Minutes && oldTime.Seconds == t.Seconds && oldTime.Ampm == t.Ampm{ 
+		if oldTime.Hours == t.Hours && oldTime.Minutes == t.Minutes && oldTime.Seconds == t.Seconds && oldTime.Ampm == t.Ampm {
 			res := errorResponse{"Time already exists. If you want to change the days, please edit the original time", true}
 			w.WriteHeader(http.StatusConflict)
 			json.NewEncoder(w).Encode(res)
 			return
 		}
 	}
-	t.OwnerID = bson.ObjectIdHex(id)
-	t.ID = bson.NewObjectId()
-	insertErr := handler.Times.Insert(t)
+	t.OwnerID = oid
+	t.ID = bson.NewObjectID()
+	_, insertErr := handler.Times.InsertOne(context.Background(), t)
 	if insertErr != nil {
 		panic(insertErr)
 	}
-	var userTimes []time
-	searchErr := handler.Times.Find(bson.M{"ownerid": bson.ObjectIdHex(id)}).All(&userTimes)
+	var userTimes []alarm
+	cursor, searchErr := handler.Times.Find(context.Background(), bson.M{"ownerid": oid})
+	if searchErr == nil {
+		cursor.All(context.Background(), &userTimes)
+	}
 	if searchErr != nil {
 		panic(searchErr)
 	}
@@ -395,32 +411,35 @@ func (handler *handler) editTime(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(res)
 		return
 	}
-	var t time
+	var t alarm
 	json.NewDecoder(r.Body).Decode(&t)
-	var allTimes []time
-	allSearchErr := handler.Times.Find(bson.M{"ownerid": bson.ObjectIdHex(id)}).All(&allTimes)
+	var allTimes []alarm
+	oid, _ := bson.ObjectIDFromHex(id)
+	cursor, allSearchErr := handler.Times.Find(context.Background(), bson.M{"ownerid": oid})
 	if allSearchErr != nil {
 		panic(allSearchErr)
 	}
+	cursor.All(context.Background(), &allTimes)
 	for _, oldTime := range allTimes {
-		if oldTime.Hours == t.Hours &&  oldTime.Minutes == t.Minutes && oldTime.Seconds == t.Seconds && oldTime.Ampm == t.Ampm && oldTime.ID != t.ID { 
+		if oldTime.Hours == t.Hours && oldTime.Minutes == t.Minutes && oldTime.Seconds == t.Seconds && oldTime.Ampm == t.Ampm && oldTime.ID != t.ID {
 			res := errorResponse{"Time already exists. If you want to change the days, please edit the original time", true}
 			w.WriteHeader(http.StatusConflict)
 			json.NewEncoder(w).Encode(res)
 			return
 		}
 	}
-	var origtime time
-	searchErr := handler.Times.FindId(t.ID).One(&origtime)
+	var origtime alarm
+	searchErr := handler.Times.FindOne(context.Background(), bson.M{"_id": t.ID}).Decode(&origtime)
 	if searchErr != nil {
 		panic(searchErr)
 	}
 	// Verify that the person with the cookie is the owner of the time
 	if id == origtime.OwnerID.Hex() {
 		t.OwnerID = origtime.OwnerID
-		handler.Times.UpdateId(t.ID, t)
-		var times []time
-		handler.Times.Find(bson.M{"ownerid": bson.ObjectIdHex(id)}).All(&times)
+		handler.Times.ReplaceOne(context.Background(), bson.M{"_id": t.ID}, t)
+		var times []alarm
+		cursor, _ := handler.Times.Find(context.Background(), bson.M{"ownerid": oid})
+		cursor.All(context.Background(), &times)
 		json.NewEncoder(w).Encode(times)
 	} else {
 		// The person removing the time doesn't have a matching cookie ID, send error
@@ -446,20 +465,22 @@ func (handler *handler) deleteTime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	decoder := json.NewDecoder(r.Body)
-	var t time
+	var t alarm
 	decoder.Decode(&t)
-	var origtime time
-	searchErr := handler.Times.FindId(t.ID).One(&origtime)
+	oid, _ := bson.ObjectIDFromHex(id)
+	var origtime alarm
+	searchErr := handler.Times.FindOne(context.Background(), bson.M{"_id": t.ID}).Decode(&origtime)
 	if searchErr != nil {
 		panic(searchErr)
 	}
 	// Verify that the person with the cookie is the owner of the time
 	if id == origtime.OwnerID.Hex() {
-		handler.Times.Remove(bson.M{"_id": t.ID})
-		var times []time
-		handler.Times.Find(bson.M{"ownerid": bson.ObjectIdHex(id)}).All(&times)
+		handler.Times.DeleteOne(context.Background(), bson.M{"_id": t.ID})
+		var times []alarm
+		cursor, _ := handler.Times.Find(context.Background(), bson.M{"ownerid": oid})
+		cursor.All(context.Background(), &times)
 		if times == nil {
-			times = []time{}
+			times = []alarm{}
 		}
 		json.NewEncoder(w).Encode(times)
 	} else {
@@ -469,13 +490,29 @@ func (handler *handler) deleteTime(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	session, connErr := mgo.Dial(os.Getenv("MONGODB_URI"))
-	if connErr != nil {
-		panic(connErr)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Connect to MongoDB
+	client, err := mongo.Connect(options.Client().ApplyURI(os.Getenv("MONGODB_URI")))
+	if err != nil {
+		log.Fatal(err)
 	}
-	defer session.Close()
-	users := session.DB("clock").C("users")
-	times := session.DB("clock").C("times")
+	fmt.Printf("Connected to MongoDB \n")
+	defer func() {
+		if err = client.Disconnect(ctx); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	// Ping the database
+	if err := client.Ping(ctx, nil); err != nil {
+		log.Fatal(err)
+	}
+
+	database := client.Database("clock")
+	users := database.Collection("users")
+	times := database.Collection("times")
 	handler := &handler{users, times}
 
 	http.Handle("/", http.FileServer(http.Dir("./public")))
@@ -487,5 +524,9 @@ func main() {
 	http.HandleFunc("/api/newtime", handler.newTime)
 	http.HandleFunc("/api/edittime", handler.editTime)
 	http.HandleFunc("/api/deletetime", handler.deleteTime)
-	http.ListenAndServe(":3000", nil)
+
+	log.Println("Server starting on :3000")
+	if err := http.ListenAndServe(":3000", nil); err != nil {
+		log.Fatal(err)
+	}
 }

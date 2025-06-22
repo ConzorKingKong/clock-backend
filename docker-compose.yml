@@ -1,27 +1,33 @@
 version: "3"
 services:
   nginx:
+    container_name: nginx
     image: nginx
     volumes:
       - "./conf.d:/etc/nginx/conf.d"
     ports:
       - "3000:80"
+    depends_on:
+      - backend
+      - frontend
   mongo:
     container_name: mongo
-    image: mongo:3.5
+    image: mongo:7
     ports:
       - '27017:27017'
   frontend:
+    container_name: frontend
     image: registry.gitlab.com/conzorkingkong/clock
     expose:
       - "3000"
   backend:
+    container_name: backend
     depends_on:
       - mongo
     build: 
       context: .
-      args:
-        SECRET: $SECRET
-        MONGODB_URI: $MONGODB_URI
+    environment:
+      - SECRET=${SECRET:-RUNOPENSSLRAND60PIPEBASE64}
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongo:27017/clock}
     expose:
       - "3000"
